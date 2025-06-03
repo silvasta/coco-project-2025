@@ -1,0 +1,14 @@
+{
+    "taskname": "edge",
+    "networkname": "cocoCity",
+    "actuators": "edge",
+    "deparr": "./dep/sumo_files/cocoCity/network/dep_arr.json",
+    "regions": "./dep/sumo_files/cocoCity/network/regions.json",
+
+    "control_cycle": 20,
+    "gui": 0,
+    "begin": 0,
+    "end": 3600,
+    "scale": 1.0,
+    "time_to_teleport": -1
+}

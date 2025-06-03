@@ -1,0 +1,12 @@
+{
+    "actuators": [
+        "B3C3",
+        "D1D2",
+        "G3F3",
+        "G4F4",
+        "D6D5"
+    ],
+    "disturbances": [
+        
+    ]
+}
