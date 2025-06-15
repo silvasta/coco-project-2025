@@ -3,4 +3,5 @@
 
 # jupyter
 .jupyter
+__pycache__
 

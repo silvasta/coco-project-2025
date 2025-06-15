@@ -1,0 +1,7 @@
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__"]
+
+venvPath = "/home/silvan/Environments/"
+venv = "coco_0603"
