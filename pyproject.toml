@@ -1,7 +1,27 @@
+[project]
+name = "coco-project-2025"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "collector==0.4.6",
+  "cvxpy==1.6.5",
+  "lxml==5.4.0",
+  "matplotlib==3.10.3",
+  "networkx==3.4.2",
+  "numpy==2.2.6",
+  "optuna==4.3.0",
+  "pandas==2.2.3",
+  "qpsolvers==4.7.0",
+  "scikit-learn==1.6.1",
+  "scipy==1.15.3",
+  "sumolib==1.23.1",
+  "SumoNetVis==1.6.2",
+  "traci==1.23.1",
+  "imageio==2.37.0",
+  "Mosek==11.0.20",
+]
 
-[tool.pyright]
-include = ["src"]
-exclude = ["**/__pycache__"]
-
-venvPath = "/home/silvan/Environments/"
-venv = "coco_0603"
+[dependency-groups]
+dev = ["ipykernel>=6.29.5"]

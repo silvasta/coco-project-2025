@@ -1,4 +1,0 @@
-copy the desired line
-
-source ~/Environments/coco_0603/bin/activate
-_

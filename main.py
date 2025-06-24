@@ -18,7 +18,6 @@ from src.tasks.estimate import Estimate
 # (helper function, can be ignored)
 from src.simulations.testcontrolsim import test_ControlSim
 
-
 # The following packages are for simulation and control design
 # DSL is the class used for Dynamic Speed Limit control which runs a ControlSim simulation with Controller in the loop
 from src.tasks.dsl import DSL
@@ -28,11 +27,6 @@ from src.controllers.controller import Controller
 
 # A simulation environment in which we test our controllers
 from src.simulations.controlsim import ControlSim  # type:ignore
-
-# ----------------------------------------------------------------------------------------------------
-from student.mpc_controller import hello
-from student.mpc_controller import check_inputs
-# ----------------------------------------------------------------------------------------------------
 
 # The following packages are for visualization
 from src.visualization.visualization import *
@@ -50,6 +44,7 @@ with open(mfd_taskparams, "r") as file:
 # ----------------------------------------------------------------------------------------------------
 # Optimal Density
 # ----------------------------------------------------------------------------------------------------
+
 rho_star = np.array([5.70, 9.83, 10.63, 14.55, 11.94])
 n_regions = 5
 
@@ -62,11 +57,11 @@ print("Optimal Densities:\n", json.dumps(optimal_density, indent=4))
 # ----------------------------------------------------------------------------------------------------
 # Spawning Vehicles
 # ----------------------------------------------------------------------------------------------------
+
 # The pd.read_csv() line below gives io_data, which can be used as data for your data-driven controller
 io_data = pd.read_csv("./dep/sumo_files/cocoCity/control/edge/io_data.csv")
 # this line prints the column names of the training data
 print(f"Data Columns:\n{io_data.columns.values}")
-
 
 # the following code produces the evaluation scenario plot above
 spawnedVehicles = np.load("dep/sumo_files/cocoCity/routing/spawning_training.npy")
@@ -79,13 +74,12 @@ for region in range(5):
     )
     axes[region].set_ylabel("# Vehicles")
     axes[region].legend()
-axes[region].set_xlabel("Simulation Time")
+axes[4].set_xlabel("Simulation Time")
 
 plt.suptitle("Spawned Vehicles in Each Region")
 plt.tight_layout()
 plt.savefig("spawning_training.png", dpi=300, bbox_inches="tight")
 plt.show()
-
 
 # ----------------------------------------------------------------------------------------------------
 # Model of the System
@@ -164,6 +158,7 @@ class ControlSim(ControlSim):  # type:ignore
             actuators=actuators,
             controlparams=controlparams,
         )
+        self.output_path = "out/nococo/"
 
     def compute_input(
         self,
@@ -216,17 +211,22 @@ class ControlSim(ControlSim):  # type:ignore
 
 # for the no control case, no parameters are needed. Below is just an example of how a parameter could be set.
 noControl_control_params = {"Example": 5}
-
+print(ControlSim)
 # takes around 30s to run
 dsl_task = DSL(
     taskparams, ControlSim
 )  # DSL is a class with a "runtask" function, "dsl_task" is an instance of the class
-
+start_time = time.time()
 experiment = dsl_task.runtask(
     init_from_notebook=True,
     controller_class=noControl_controller,
     controller_json=noControl_control_params,
 )
+end_time = time.time()
+run_time = end_time - start_time
+print(time)
+print("No-controller time:", run_time)
+
 # this line will instantiate a SUMO simulation and the specified controller
 # The controller is determined by "controller_class" and the parameters are determined by "controller_json"
 # runtask starts SUMO (the traffic sim)
@@ -235,6 +235,7 @@ experiment = dsl_task.runtask(
 # ----------------------------------------------------------------------------------------------------
 # Control evaluation tool
 # ----------------------------------------------------------------------------------------------------
+
 region = "Region 4"
 com = Comparison([experiment], ["Current Status"], region=region)  # type:ignore
 
@@ -245,7 +246,7 @@ com.plot_metrics()
 
 ## Alternatively, if you have the saved output_dir, you can also plot the results.
 # This is where the output of the experiment was saved.
-output_dir = experiment.info["output_path"]
+output_dir = experiment.info["output_path"]  # type:ignore
 experiment_saved = Experiment()  # instantiate an empty experiment
 experiment_saved.load(output_dir)  # Load in the simulation experiment result
 com = Comparison([experiment_saved], ["Current Status (saved)"], region=region)  # type:ignore
@@ -254,24 +255,32 @@ com.plot_metrics()
 # ----------------------------------------------------------------------------------------------------
 # Gif generation
 # ----------------------------------------------------------------------------------------------------
-# GIF Generation
-# [DO NOT TOUCH THE LINE BELOW] Turns off matplotlib in-line plotting to save memory, needed for GIF generation.
-# %matplotlib agg
 
-# This takes around 2 minutes (can be commented out)
+gif = False
+gif = True
+if gif:
+    start_time = time.time()
+    # GIF Generation
+    # [DO NOT TOUCH THE LINE BELOW] Turns off matplotlib in-line plotting to save memory, needed for GIF generation.
+    # %matplotlib agg
 
-# This is where the output of the experiment was saved.
-output_dir = experiment.info["output_path"]
-# Specify where to save the density git file, can change to your own path
-output_gif_path = "figs/no_control_demo_heatmap.gif"
-cmap, norm = cocoCity_plot_generate_density_gif(output_dir, output_gif_path)
+    # This takes around 2 minutes (can be commented out)
 
-# Display saved GIF
-# display(Image(url=output_gif_path))
-# [DO NOT TOUCH THE LINE BELOW] turns matplotlib in-line back on.
-# %matplotlib inline
-# plot_color_legend(cmap, norm)
+    # This is where the output of the experiment was saved.
+    output_dir = experiment.info["output_path"]  # type:ignore
+    # Specify where to save the density git file, can change to your own path
+    output_gif_path = "figs/no_control_demo_heatmap.gif"
+    cmap, norm = cocoCity_plot_generate_density_gif(output_dir, output_gif_path)
 
+    # Display saved GIF
+    # display(Image(url=output_gif_path))
+    # [DO NOT TOUCH THE LINE BELOW] turns matplotlib in-line back on.
+    plot_color_legend(cmap, norm)
+
+    # %matplotlib inline
+    end_time = time.time()
+    run_time = end_time - start_time
+    print("GIF time:", run_time)
 # ----------------------------------------------------------------------------------------------------
 # coco P Controller
 # ----------------------------------------------------------------------------------------------------
@@ -319,6 +328,7 @@ class pControl_ControlSim(ControlSim):
             actuators=actuators,
             controlparams=controlparams,
         )
+        self.output_path = "out/pcoco/"
 
     def compute_input(  # type: ignore
         self,
@@ -354,11 +364,16 @@ dsl_task = DSL(
 )  # DSL is a class with a "runtask" function, "dsl_task" is an instance of the class
 controller_class = pController
 controller_json = pControl_control_params
+
+start_time = time.time()
 experiment = dsl_task.runtask(
     init_from_notebook=True,
     controller_class=controller_class,
     controller_json=controller_json,
 )
+end_time = time.time()
+run_time = end_time - start_time
+print("P-controller time:", run_time)
 # runtask starts SUMO (the traffic sim)
 # "experiment" is the saved output of the simulation
 

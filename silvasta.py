@@ -3,7 +3,6 @@ import numpy as np
 import cvxpy as cp
 import matplotlib.pyplot as plt
 import pandas as pd
-import importlib
 import time
 
 # Used to estimate the macroscopic fundamental diagram
@@ -13,17 +12,9 @@ from src.tasks.dsl import DSL
 from src.controllers.controller import Controller
 from src.simulations.controlsim import ControlSim
 
-# ----------------------------------------------------------------------------------------------------
 from dataclasses import dataclass, asdict
-import dataclasses
 
-# ----------------------------------------------------------------------------------------------------
-# ----------------------------------------------------------------------------------------------------
-from student.mpc_controller import hello
-from student.mpc_controller import check_inputs
-# ----------------------------------------------------------------------------------------------------
-# ----------------------------------------------------------------------------------------------------
-
+# -------------------------------------------------------------------------------------------------
 taskparams_json = "dep/sumo_files/cocoCity/simparams/cocoCity.json"
 with open(taskparams_json, "r") as file:
     taskparams = json.load(file)
@@ -31,9 +22,9 @@ mfd_taskparams = "dep/sumo_files/cocoCity/simparams/cocoCity_mfd.json"
 with open(mfd_taskparams, "r") as file:
     mfd_taskparams = json.load(file)
 
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 # FIELD
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 # The code below povides the linear traffic model parameters A, B, C, and d
 dsl_task = DSL(taskparams, test_ControlSim)
@@ -44,59 +35,21 @@ model = dsl_task.simulation.get_model()
 A, B, C, d = model.linearize(sim_period, rho_star, v_target)
 print(type(A))
 
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 # FIELD
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 
 class MPC_Controller(Controller):
     def __init__(self, actuators, params={}) -> None:
         """Initialize the controller"""
-        super().__init__(actuators, params)
+        super().__init__(actuators=actuators, params=params)
         self.name = "MPC"
-        self.iter = 0
-        # self.n_regions = params["n_regions"]
-        # self.ul = self.safety[0]  # lower bound on the input = 0.5
-        # self.uu = self.safety[1]  # upper bound on the input = 1.5
-        # self.params = params
-        # print(self.params)
-        # print()
-        # print(self.safety)
-        # print()
-        # print(self.m)
-        # print()
-        # print(self.actuators)
-        # print()
+        # ---
+        self.output_path = "./test"
 
     def get_next_input(self):  # type:ignore
-        print(f"count controller = {self.iter}")
-        self.iter += 1
         pass
-
-
-# ----------------------------------------------------------------------------------------------------
-# FIELD
-# ----------------------------------------------------------------------------------------------------
-
-
-# @dataclasses.dataclass(frozen=True)
-# class MPC_Params:
-#     g: int = 1
-#     Q: int = 2
-#     A: np.ndarray = A
-
-
-@dataclass(frozen=True)
-class MPC_Params:
-    g: int = 1
-    Q: int = 2
-    A, B, C, d = model.linearize(sim_period, rho_star, v_target)
-    # A: np.ndarray = A
-
-
-# ----------------------------------------------------------------------------------------------------
-# FIELD
-# ----------------------------------------------------------------------------------------------------
 
 
 class MPC_ControlSim(ControlSim):
@@ -107,7 +60,7 @@ class MPC_ControlSim(ControlSim):
             actuators=actuators,
             controlparams=controlparams,
         )
-        self.iter = 0
+        self.output_path = "out/mpc/"
 
     def compute_input(  # type: ignore
         self,
@@ -138,10 +91,7 @@ class MPC_ControlSim(ControlSim):
             # "u_min": u_min, # always same, 0.5
             # "u_max": u_max, # always same, 1.5
         }
-        check_inputs(inputs)
 
-        print(f"count simulator = {self.iter}")
-        self.iter += 1
         # create params
         u = self.controller.get_next_input()
         u = np.ones(5)
@@ -149,15 +99,15 @@ class MPC_ControlSim(ControlSim):
         return u, y
 
 
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 # FIELD
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 
 class MPC(Controller):
     def __init__(self, actuators, params={}) -> None:
         """Initialize the controller"""
-        super().__init__(actuators, params)
+        super().__init__(actuators)
         self.name = "MPC"
         self.iter = 0
         # self.n_regions = params["n_regions"]
@@ -179,34 +129,38 @@ class MPC(Controller):
         pass
 
 
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 # FIELD
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 
 def run_mpc():
     print()
     print("Run MPC")
     print()
-    hello()
 
-    # params = MPC_Params()
-    params = MPC_Params
-    print(params.C)
-
+    params = {"test": 1}
     # print(params.g)
     dsl_task = DSL(taskparams, MPC_ControlSim)
-    Mpc = MPC_Controller
+
     experiment = dsl_task.runtask(
         init_from_notebook=True,
-        controller_class=Mpc,
+        controller_class=MPC_Controller,
         controller_json=params,
     )
 
+    region = "Region 4"
+    com = Comparison([experiment], ["Current Status"], region=region)  # type:ignore
 
-# ----------------------------------------------------------------------------------------------------
+    com.plot_density()
+    com.plot_flow()
+    com.plot_input()
+    com.plot_metrics()
+
+
+# -------------------------------------------------------------------------------------------------
 # FIELD end
-# ----------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     run_mpc()
