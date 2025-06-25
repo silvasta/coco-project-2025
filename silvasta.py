@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, override
 from collections import namedtuple
 
 import cvxpy as cvx
@@ -66,7 +66,6 @@ class MPC_Controller(Controller):
         ### task specific params
         # initial condition, gets updated in simulation
         self.x_t: np.ndarray
-        self.goal: np.ndarray
         # prediciton horizon
         self.T: int
         # control horizon
@@ -103,10 +102,6 @@ class MPC_Controller(Controller):
         self.T = p["T"]
         self.K = p["K"]
         # target state
-        self.goal = p["rho_star"]
-
-    def set_goal(self, r):
-        self.goal = np.array(r)
 
     def set_current_state(self, x, q):
         self.x_t = np.array(x)
@@ -150,13 +145,11 @@ class MPC_Controller(Controller):
                 == self.A @ X[:, k] + self.B @ U[:, k] + self.C @ q_t + self.d
             ]
             # state constraints
-            ...
+            #
             # input constraints
-            constraints += [U[:, k] <= 1.5 * np.ones(5)]
-            constraints += [U[:, k] >= 0.5 * np.ones(5)]
-            # constraints += [-cvx.norm(U[:, k], 1) <= -0.5]
+            constraints += [cvx.norm(U[:, k], 1) <= 0.5]
         # final state constraint
-        constraints += [X[:, self.K] == self.goal]
+        constraints += [X[:, self.K] == 0]
 
         return constraints
 
@@ -172,42 +165,39 @@ class MPC_Controller(Controller):
 
         return cvx.Minimize(objective)
 
-    def solve_problem(self, solver="MOSEK", verbose=False):
+    def solve_problem(self):
         """
         Updates parameter, runs solver and checks result
         """
+        # refresh solver parameter
         self.cvx_parameters["current_state"].value = self.x_t
-        print()
-        print(self.x_t)
-        print(self.q_t)
-        print()
         self.cvx_parameters["current_spawning"].value = self.q_t
-        self.problem.solve(verbose=verbose)
-        # self.problem.solve(solver=solver, verbose=verbose)
-        # Check solver status
+        # try to solve
+        self.problem.solve(verbose=True)
+        # solver=cvx.MOSEK, verbose=False
+        # check solver status
         for key, variable in self.variables.items():
             if variable.value is None:
                 print(f"Solver failed: {key}.value is None")
                 # raise ValueError(f"Solver failed: {key}.value is None")
 
-    def get_next_input(self):
+    def get_next_input(self):  # type:ignore
         """
-        Calls solver and takes first input or 0
+        Calls solver, takes first input or 0, predicts next state
         """
         self.solve_problem()
         # get input
-        x = self.x_t
-        u = self.variables["U"].value[:, 0]
-        if u is None:
+        try:
+            u = self.variables["U"].value[:, 0]
+        except ValueError:
             print("fail!!! u ist not properly calculated")
-            u = [1, 1, 1, 1, 1]
-        q = self.q_t
-        y = self.predict_next_state(x, u, q)
-        return u, y
+            u = [0, 0, 0, 0, 0]
+
+        return u
 
     def predict_next_state(self, x, u, q):
         """
-        Calls solver and takes first input or 0
+        Applies dynamics
         """
         x_next = self.A @ x + self.B @ u + self.C @ q + self.d
         return x_next
@@ -256,19 +246,20 @@ class MPC_ControlSim(ControlSim):
         }
         print()
         print(f"Iteration: {k}")
-        if k == 0:
-            # set optimal value rho as goal
-            rho_star = r
-            self.controller.set_goal(rho_star)
+        # extract current state and vehicles
         x_t = yMeasuredMatrix[:, k]
         q_t = forecast[k, :]
-        print(x_t)
-        print(q_t)
-        self.controller.set_current_state(x_t, q_t)
-        u, y = self.controller.get_next_input()
+        # prepare state for delta zero system
+        x_t_delta = x_t - r
+        self.controller.set_current_state(x_t_delta, q_t)
+        # get input for delta zero system
+        u_delta = self.controller.get_next_input()
+        u = u_delta + [1, 1, 1, 1, 1]
+        # apply dynamics to get next state
+        y = self.controller.predict_next_state(x_t, u, q_t)
         print(f"{k}: u = {u}, y = {y}")
-        u = np.ones(5)
-        y = np.zeros(5)
+        # u = np.ones(5)
+        # y = np.zeros(5)
         input()
         return u, y
 
@@ -288,19 +279,13 @@ def run_mpc():
     # q_star = [1 / q**2 for q in rho_star]
     # print(q_star)
 
-    q_star = [
-        0.03077870113881194,
-        0.010348870782964517,
-        0.008849800304256134,
-        0.00472360978259586,
-        0.007014413216276807,
-    ]
+    q_star = [0, 0, 0, 0, 1]
 
     param = {
         "Q": np.diag(q_star),
         "R": np.eye(5),
         "T": 0,
-        "K": 180,
+        "K": 30,
         "rho_star": rho_star,
     }
     dsl_task = DSL(taskparams, MPC_ControlSim)
