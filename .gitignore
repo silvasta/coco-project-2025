@@ -1,7 +1,8 @@
-# before
-**checkpoint**
-
+# general
+.bak
+# python
+.venv
+**__pycache__
 # jupyter
 .jupyter
-__pycache__
-.venv
+.ipynb_checkpoints

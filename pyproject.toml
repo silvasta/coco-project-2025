@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
 dependencies = [
   "collector==0.4.6",
   "cvxpy==1.6.5",
@@ -21,7 +25,11 @@ dependencies = [
   "traci==1.23.1",
   "imageio==2.37.0",
   "Mosek==11.0.20",
+  "src",
 ]
+[tool.uv.sources]
+
+src={path="src"}
 
 [dependency-groups]
 dev = ["ipykernel>=6.29.5"]
