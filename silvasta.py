@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 
+from src.controllers import controller
 from src.tasks.estimate import Estimate
 from src.simulations.testcontrolsim import test_ControlSim
 from src.tasks.dsl import DSL
@@ -23,6 +24,9 @@ with open(taskparams_json, "r") as file:
 mfd_taskparams = "dep/sumo_files/cocoCity/simparams/cocoCity_mfd.json"
 with open(mfd_taskparams, "r") as file:
     mfd_taskparams = json.load(file)
+
+# print(cvx.installed_solvers())
+np.set_printoptions(precision=3)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -103,10 +107,6 @@ class MPC_Controller(Controller):
         self.K = p["K"]
         # target state
 
-    def set_current_state(self, x, q):
-        self.x_t = np.array(x)
-        self.q_t = np.array(q)
-
     def _get_variables(self) -> dict:
         """
         Define and store optimization variables
@@ -122,8 +122,9 @@ class MPC_Controller(Controller):
         Define mutable problem parameters
         """
         problem_parameters = {
-            "current_state": cvx.Parameter(self.nx),
-            "current_spawning": cvx.Parameter(self.nx),
+            "X_t": cvx.Parameter(self.nx),
+            "X_s": cvx.Parameter(self.nx),
+            "U_s": cvx.Parameter(self.nu),
         }
 
         return problem_parameters
@@ -132,22 +133,29 @@ class MPC_Controller(Controller):
         """
         Define cvx constraints from dynamics and system
         """
-        # state and input for optimization
+        # X,U time series
         X = self.variables["X"]
         U = self.variables["U"]
-        # constraint with mutable parameter (receding horizon)
-        constraints = [X[:, 0] == self.cvx_parameters["current_state"]]
-        q_t = self.cvx_parameters["current_spawning"]
+        # initial x and disturbance for 1 iteration
+        X_t = self.cvx_parameters["X_t"]
+        # steady state prediction for 1 iteration
+        X_s = self.cvx_parameters["X_s"]
+        U_s = self.cvx_parameters["U_s"]
+
+        A = self.A
+        B = self.B
+        # constraint for first state
+        constraints = [X[:, 0] == X_t]
         for k in range(self.K):
-            # dynamics
             constraints += [
-                X[:, k + 1]
-                == self.A @ X[:, k] + self.B @ U[:, k] + self.C @ q_t + self.d
+                # dynamic constraints
+                X[:, k + 1] == A @ X[:, k] + B @ U[:, k],
+                # state constraints
+                #
+                # input constraints
+                U[:, k] <= 1.5 * np.ones(self.nu) - U_s,
+                U[:, k] >= 0.5 * np.ones(self.nu) + U_s,
             ]
-            # state constraints
-            #
-            # input constraints
-            constraints += [cvx.norm(U[:, k], 1) <= 0.5]
         # final state constraint
         constraints += [X[:, self.K] == 0]
 
@@ -170,8 +178,6 @@ class MPC_Controller(Controller):
         Updates parameter, runs solver and checks result
         """
         # refresh solver parameter
-        self.cvx_parameters["current_state"].value = self.x_t
-        self.cvx_parameters["current_spawning"].value = self.q_t
         # try to solve
         self.problem.solve(verbose=True)
         # solver=cvx.MOSEK, verbose=False
@@ -181,26 +187,25 @@ class MPC_Controller(Controller):
                 print(f"Solver failed: {key}.value is None")
                 # raise ValueError(f"Solver failed: {key}.value is None")
 
-    def get_next_input(self):  # type:ignore
+    def get_u_delta(self, x_t, x_s, u_s):
         """
         Calls solver, takes first input or 0, predicts next state
         """
+        self.cvx_parameters["X_t"].value = x_t
+        self.cvx_parameters["X_s"].value = x_s
+        self.cvx_parameters["U_s"].value = u_s
+
         self.solve_problem()
         # get input
-        try:
-            u = self.variables["U"].value[:, 0]
-        except ValueError:
-            print("fail!!! u ist not properly calculated")
-            u = [0, 0, 0, 0, 0]
+        if self.variables["U"].value is not None:
+            u_delta = self.variables["U"].value[:, 0]
+        else:
+            u_delta = np.zeros(self.nx)
+            print("u_delta was not calculated correctly!")
+        return u_delta
 
-        return u
-
-    def predict_next_state(self, x, u, q):
-        """
-        Applies dynamics
-        """
-        x_next = self.A @ x + self.B @ u + self.C @ q + self.d
-        return x_next
+    def get_next_input(self, *args):
+        return super().get_next_input(*args)
 
 
 class MPC_ControlSim(ControlSim):
@@ -212,6 +217,14 @@ class MPC_ControlSim(ControlSim):
             controlparams=controlparams,
         )
         self.output_path = "out/mpc/"
+        # steady state and input
+        self.X_s: cvx.Variable
+        self.U_s: cvx.Variable
+        # disturbance (summary of C @ q + d), mutable
+        self.D_t: cvx.Parameter
+        # optimal value, designed mutable
+        self.Rho: cvx.Parameter
+        self.problem: cvx.Problem
 
     def compute_input(  # type: ignore
         self,
@@ -244,24 +257,79 @@ class MPC_ControlSim(ControlSim):
             # "u_min": u_min, # always same, 0.5
             # "u_max": u_max, # always same, 1.5
         }
+
+        if k == 0:
+            self.setup_steady_state_OP()
         print()
         print(f"Iteration: {k}")
-        # extract current state and vehicles
-        x_t = yMeasuredMatrix[:, k]
-        q_t = forecast[k, :]
-        # prepare state for delta zero system
-        x_t_delta = x_t - r
-        self.controller.set_current_state(x_t_delta, q_t)
+        # extract current state
+        x = yMeasuredMatrix[:, k]
+        # calculate disturbance
+        q = forecast[k, :]
+        disturbance = self.controller.C @ q + self.controller.d
+        # prepare (steady) state for delta zero system
+        x_delta, x_s, u_s = self.target_selector(x, r, disturbance)
         # get input for delta zero system
-        u_delta = self.controller.get_next_input()
-        u = u_delta + [1, 1, 1, 1, 1]
+        u_delta = self.controller.get_u_delta(x_delta, x_s, u_s)
+        u = u_delta + u_s
         # apply dynamics to get next state
-        y = self.controller.predict_next_state(x_t, u, q_t)
+        y = self.predict_next_state(x, u, disturbance)
         print(f"{k}: u = {u}, y = {y}")
         # u = np.ones(5)
         # y = np.zeros(5)
         input()
         return u, y
+
+    def predict_next_state(self, x, u, d):
+        """
+        Applies dynamics
+        """
+        A = self.controller.A
+        B = self.controller.B
+        x_next = A @ x + B @ u + d
+
+        return x_next
+
+    def target_selector(self, x, r, disturbance):
+        """
+        Calculates steady state and delta x
+        """
+        print(disturbance)
+        self.D_t.value = disturbance.reshape(-1)
+        self.Rho.value = r
+        self.problem.solve(solver="SCS")  # MOSEK no license...
+        x_s = self.X_s.value
+        # x_s = X_s if X_s is not None else r #TODO: failsave
+        u_s = self.U_s.value
+        x_delta = x - x_s
+        print(f"x_s: {x_s}, u_s: {u_s}")
+        print(f"x_d: {x_delta}")
+        return x_delta, x_s, u_s
+
+    def setup_steady_state_OP(self):
+        """
+        Initialization of steady state optimization problem
+        """
+        nx, nu = self.controller.nx, self.controller.nu
+        X_s = cvx.Variable(nx)
+        U_s = cvx.Variable(nu)
+        D_t = cvx.Parameter(nx)
+        Rho = cvx.Parameter(nx)
+        A = self.controller.A
+        B = self.controller.B
+        constraints = [
+            X_s == A @ X_s + B @ U_s + D_t,
+            U_s <= 1.5 * np.ones(self.controller.nu),
+            U_s >= 0.5 * np.ones(self.controller.nu),
+        ]
+        objective = cvx.Minimize(cvx.norm(X_s - Rho))
+        problem = cvx.Problem(objective, constraints)
+        # finally set all states
+        self.X_s = X_s
+        self.U_s = U_s
+        self.D_t = D_t
+        self.Rho = Rho
+        self.problem = problem
 
 
 # -------------------------------------------------------------------------------------------------
@@ -285,7 +353,7 @@ def run_mpc():
         "Q": np.diag(q_star),
         "R": np.eye(5),
         "T": 0,
-        "K": 30,
+        "K": 90,
         "rho_star": rho_star,
     }
     dsl_task = DSL(taskparams, MPC_ControlSim)
