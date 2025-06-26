@@ -1,12 +1,12 @@
 from typing import Union, override
 from collections import namedtuple
-
 import cvxpy as cvx
 import matplotlib.pyplot as plt
 import numpy as np
 import json
 
 from src.controllers import controller
+from src.tasks import dsl
 from src.tasks.estimate import Estimate
 from src.simulations.testcontrolsim import test_ControlSim
 from src.tasks.dsl import DSL
@@ -16,6 +16,7 @@ from src.simulations.controlsim import ControlSim  # type:ignore
 # from src.visualization.visualization import *
 from src.data.comparison import Comparison
 from src.data.experiment import Experiment
+
 
 # -------------------------------------------------------------------------------------------------
 taskparams_json = "dep/sumo_files/cocoCity/simparams/cocoCity.json"
@@ -102,6 +103,7 @@ class MPC_Controller(Controller):
         # cost parameter
         self.Q = np.atleast_2d(np.array(p["Q"]))
         self.R = np.atleast_2d(np.array(p["R"]))
+        self.S = np.atleast_2d(np.array(p["S"]))
         # horizon params
         self.T = p["T"]
         self.K = p["K"]
@@ -151,13 +153,14 @@ class MPC_Controller(Controller):
                 # dynamic constraints
                 X[:, k + 1] == A @ X[:, k] + B @ U[:, k],
                 # state constraints
-                #
+                # TODO: restrict maximal state
                 # input constraints
                 U[:, k] <= 1.5 * np.ones(self.nu) - U_s,
-                U[:, k] >= 0.5 * np.ones(self.nu) + U_s,
+                U[:, k] >= U_s - 0.5 * np.ones(self.nu),
             ]
         # final state constraint
-        constraints += [X[:, self.K] == 0]
+        # constraints += [X[:, self.K] == 0]
+        # --> use high value in cost to force system in this direction
 
         return constraints
 
@@ -170,7 +173,7 @@ class MPC_Controller(Controller):
         objective = 0
         for k in range(self.K):
             objective += cvx.quad_form(X[:, k], self.Q) + cvx.quad_form(U[:, k], self.R)
-
+        objective += cvx.quad_form(X[:, -1], self.S)
         return cvx.Minimize(objective)
 
     def solve_problem(self):
@@ -179,7 +182,7 @@ class MPC_Controller(Controller):
         """
         # refresh solver parameter
         # try to solve
-        self.problem.solve(verbose=True)
+        self.problem.solve(verbose=False)
         # solver=cvx.MOSEK, verbose=False
         # check solver status
         for key, variable in self.variables.items():
@@ -216,7 +219,7 @@ class MPC_ControlSim(ControlSim):
             actuators=actuators,
             controlparams=controlparams,
         )
-        self.output_path = "out/mpc/"
+        self.output_path = "out/mpc/test_X"
         # steady state and input
         self.X_s: cvx.Variable
         self.U_s: cvx.Variable
@@ -225,6 +228,7 @@ class MPC_ControlSim(ControlSim):
         # optimal value, designed mutable
         self.Rho: cvx.Parameter
         self.problem: cvx.Problem
+        print("MPC control simulation initialized")
 
     def compute_input(  # type: ignore
         self,
@@ -260,24 +264,27 @@ class MPC_ControlSim(ControlSim):
 
         if k == 0:
             self.setup_steady_state_OP()
-        print()
-        print(f"Iteration: {k}")
+        # print()
+        # print(f"Iteration: {k}")
         # extract current state
         x = yMeasuredMatrix[:, k]
         # calculate disturbance
         q = forecast[k, :]
-        disturbance = self.controller.C @ q + self.controller.d
+        disturbance = controller.C @ q + controller.d
+        # print(x)
+        # print(q)
+        # print(disturbance)
         # prepare (steady) state for delta zero system
         x_delta, x_s, u_s = self.target_selector(x, r, disturbance)
         # get input for delta zero system
-        u_delta = self.controller.get_u_delta(x_delta, x_s, u_s)
+        u_delta = controller.get_u_delta(x_delta, x_s, u_s)
         u = u_delta + u_s
         # apply dynamics to get next state
         y = self.predict_next_state(x, u, disturbance)
-        print(f"{k}: u = {u}, y = {y}")
+        # print(f"{k}: u = {u}, y = {y}")
         # u = np.ones(5)
         # y = np.zeros(5)
-        input()
+        # input()
         return u, y
 
     def predict_next_state(self, x, u, d):
@@ -294,7 +301,6 @@ class MPC_ControlSim(ControlSim):
         """
         Calculates steady state and delta x
         """
-        print(disturbance)
         self.D_t.value = disturbance.reshape(-1)
         self.Rho.value = r
         self.problem.solve(solver="SCS")  # MOSEK no license...
@@ -302,8 +308,11 @@ class MPC_ControlSim(ControlSim):
         # x_s = X_s if X_s is not None else r #TODO: failsave
         u_s = self.U_s.value
         x_delta = x - x_s
-        print(f"x_s: {x_s}, u_s: {u_s}")
-        print(f"x_d: {x_delta}")
+        # print(f"x_s: {x_s}, u_s: {u_s}")
+        # print(f"x_d: {x_delta}")
+        # x_s_next = self.predict_next_state(x_s, u_s, disturbance)
+        # print(f"x_s_next: {x_s_next}")
+        # # input()
         return x_delta, x_s, u_s
 
     def setup_steady_state_OP(self):
@@ -338,43 +347,47 @@ class MPC_ControlSim(ControlSim):
 
 
 def run_mpc():
-    print()
-    print("Run MPC")
-    print()
-
     rho_star = [5.70, 9.83, 10.63, 14.55, 11.94]
 
-    # q_star = [1 / q**2 for q in rho_star]
-    # print(q_star)
+    q_star = [1 / q**2 for q in rho_star]
+    # q_star[-1] = q_star[-1] * 5
+    # q_star = [0, 0, 0, 0, 1]
+    print(q_star)
+    for s in [380, 470, 520, 600, 700, 825, 900, 950, 1050, 1100]:
+        for k in [51, 56, 62, 67, 72]:
+            task_name = f"q_star_S_{s}_K_{k}"
+            output_path = f"out/mpc/{task_name}/"
+            print()
+            print(f"Run MPC: {task_name}")
+            print()
+            param = {
+                "Q": np.diag(q_star),
+                "R": np.eye(5),
+                "S": np.diag([1, 1, 1, 1, s]),
+                "T": 180,
+                "K": k,
+            }
 
-    q_star = [0, 0, 0, 0, 1]
-
-    param = {
-        "Q": np.diag(q_star),
-        "R": np.eye(5),
-        "T": 0,
-        "K": 90,
-        "rho_star": rho_star,
-    }
-    dsl_task = DSL(taskparams, MPC_ControlSim)
-
-    experiment = dsl_task.runtask(
-        init_from_notebook=True,
-        controller_class=MPC_Controller,
-        controller_json=param,
-    )
-    region = "Region 4"
-    com = Comparison([experiment], ["Current Status"], region=region)  # type:ignore
-
-    com.plot_density()
-    com.plot_flow()
-    com.plot_input()
-    com.plot_metrics()
+            dsl_task = DSL(taskparams, MPC_ControlSim)
+            try:
+                dsl_task.simulation.output_path = output_path
+                experiment = dsl_task.runtask(
+                    init_from_notebook=True,
+                    controller_class=MPC_Controller,
+                    controller_json=param,
+                )
+            except:
+                print()
+                print(f"failed for {output_path}")
+                print()
+                input()
+                continue
 
 
 # -------------------------------------------------------------------------------------------------
 # FIELD end
 # -------------------------------------------------------------------------------------------------
-
 if __name__ == "__main__":
+    # plot_mpc_results()
+    # compare_mpc_results()
     run_mpc()

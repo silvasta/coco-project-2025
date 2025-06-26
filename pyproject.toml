@@ -32,4 +32,7 @@ dependencies = [
 src={path="src"}
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5"]
+dev = [
+    "ipykernel>=6.29.5",
+    "polars>=1.31.0",
+]
