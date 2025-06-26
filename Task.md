@@ -171,3 +171,38 @@ Die Präsentation ist für den Bürgermeister von COCO City und die Abteilung Ve
   - How you tuned and how you would recommend tuning the parameters
 - Extra slide
   - Clear explanation of the implementation considerations
+
+## ReadMe
+
+### Model-Based Controller
+
+#### Implementation MPC
+
+- The setup is split in 2 parts as proposed
+- The `MPC_Controller` processes only it's core function
+- The `MPC_ControlSim` handles the I/O and works as basic estimator and target selector
+
+##### Controller
+
+Takes as input the current state in delta-form, the steady state and input and it returns the output in delta-form.
+
+It has its own CVX objects with the constraints and objective set at the beginning. During the process, it updates the parameters but never changes the form.
+
+It is designed modular and can easily be modified and adapted.
+
+##### ControlSim
+
+Estimates the current state from the given values. Summarizes the disturbances and generates the steady state with its own optimizer. From that it shifts the state and input to an optimal value at zero for the controller.
+
+After generating the desired states with the estimator (basic implementation) and the target selector, it handles this values to the controller and takes back the new input which is handed over to the main simulation.
+
+#### Parameter
+
+Main Tuning Parameter $Q, R, S$ for the calculation of the cost to optimize and $K$ for the horizon.
+
+- $Q$ used the approach $1/(\rho^star)^2$
+- $R$
+- $S$
+- $K$
+  - What **parameters need to be tuned**
+  - How you tuned and how you would recommend tuning the parameters

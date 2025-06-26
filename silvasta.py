@@ -1,5 +1,4 @@
 from typing import Union, override
-from collections import namedtuple
 import cvxpy as cvx
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,7 +10,7 @@ from src.tasks.estimate import Estimate
 from src.simulations.testcontrolsim import test_ControlSim
 from src.tasks.dsl import DSL
 from src.controllers.controller import Controller
-from src.simulations.controlsim import ControlSim  # type:ignore
+from src.simulations.controlsim import ControlSim
 
 # from src.visualization.visualization import *
 from src.data.comparison import Comparison
@@ -68,10 +67,12 @@ class MPC_Controller(Controller):
         # cost parameter
         self.Q: np.ndarray
         self.R: np.ndarray
+        # cost on final state
+        self.S: np.ndarray
         ### task specific params
         # initial condition, gets updated in simulation
-        self.x_t: np.ndarray
-        # prediciton horizon
+        # self.x_t: np.ndarray
+        # prediciton horizon, is fix
         self.T: int
         # control horizon
         self.K: int
@@ -90,6 +91,9 @@ class MPC_Controller(Controller):
         self.u_trajectory: np.ndarray
 
     def _set_system(self, p):
+        """
+        Sets up values from system and params
+        """
         # system parameter
         A, B, C, d = get_system_params()
         self.A = np.atleast_2d(A)
@@ -144,8 +148,7 @@ class MPC_Controller(Controller):
         X_s = self.cvx_parameters["X_s"]
         U_s = self.cvx_parameters["U_s"]
 
-        A = self.A
-        B = self.B
+        A, B = self.A, self.B
         # constraint for first state
         constraints = [X[:, 0] == X_t]
         for k in range(self.K):
@@ -153,26 +156,27 @@ class MPC_Controller(Controller):
                 # dynamic constraints
                 X[:, k + 1] == A @ X[:, k] + B @ U[:, k],
                 # state constraints
-                # TODO: restrict maximal state
+                # TODO: restrict maximal state?
                 # input constraints
                 U[:, k] <= 1.5 * np.ones(self.nu) - U_s,
                 U[:, k] >= U_s - 0.5 * np.ones(self.nu),
             ]
         # final state constraint
         # constraints += [X[:, self.K] == 0]
-        # --> use high value in cost to force system in this direction
+        # --> use high penalty in cost function to ensure solution
 
         return constraints
 
     def _get_objective(self) -> Union[cvx.Minimize, cvx.Maximize]:
         """
-        Define objective
+        Define objective, high cost on final state
         """
         X = self.variables["X"]
         U = self.variables["U"]
         objective = 0
         for k in range(self.K):
-            objective += cvx.quad_form(X[:, k], self.Q) + cvx.quad_form(U[:, k], self.R)
+            objective += cvx.quad_form(X[:, k], self.Q)
+            objective += cvx.quad_form(U[:, k], self.R)
         objective += cvx.quad_form(X[:, -1], self.S)
         return cvx.Minimize(objective)
 
@@ -180,7 +184,6 @@ class MPC_Controller(Controller):
         """
         Updates parameter, runs solver and checks result
         """
-        # refresh solver parameter
         # try to solve
         self.problem.solve(verbose=False)
         # solver=cvx.MOSEK, verbose=False
@@ -208,6 +211,9 @@ class MPC_Controller(Controller):
         return u_delta
 
     def get_next_input(self, *args):
+        """
+        Requisite from Controller class, override caused problems
+        """
         return super().get_next_input(*args)
 
 
@@ -225,12 +231,12 @@ class MPC_ControlSim(ControlSim):
         self.U_s: cvx.Variable
         # disturbance (summary of C @ q + d), mutable
         self.D_t: cvx.Parameter
-        # optimal value, designed mutable
+        # optimal value, designed mutable for later implementations
         self.Rho: cvx.Parameter
         self.problem: cvx.Problem
         print("MPC control simulation initialized")
 
-    def compute_input(  # type: ignore
+    def compute_input(
         self,
         k,
         forecast,
@@ -244,36 +250,30 @@ class MPC_ControlSim(ControlSim):
         r,
         u_min,
         u_max,
-    ):
-        inputs = {
-            # "k": k,  # iteration step, k in range (180)
-            # "forecast": forecast,# maybe interesting, mutable?(360, 5)
-            # for i, f in enumerate(forecast): always 1 from 180:360
-            #     print(f"{i} - {f}")
-            # "controller": controller,
-            # "controller_name": controller_name,
-            # "uAppliedMatrix": uAppliedMatrix,  # u that is sent from here
-            # "yMeasuredMatrix": yMeasuredMatrix,  # measured y, filling  up
-            # "ySingleStepPredMatrix": ySingleStepPredMatrix,  # y that this function sends
-            # "m": m,  # ??? always same, 5
-            # "p": p, # ??? always same, 5
-            # "r": r,  # rho star, always same
-            # "u_min": u_min, # always same, 0.5
-            # "u_max": u_max, # always same, 1.5
-        }
+    ):  # type: ignore
+        ### inputs
+        # "k" # iteration step, k in range (180)
+        # "forecast" forecast of traffic, only current state used
+        # "controller" controller that is implemented above
+        # "controller_name" controller_name
+        # "uAppliedMatrix"  # u that is sent from here
+        # "yMeasuredMatrix"  # measured y, filling  up
+        # "ySingleStepPredMatrix": ySingleStepPredMatrix,  # y that this function sends
+        # "m": m,  # ??? always same, 5
+        # "p": p, # ??? always same, 5
+        # "r": r,  # rho star, always same
+        # "u_min": u_min, # always same, 0.5
+        # "u_max": u_max, # always same, 1.5
 
+        # setup OP, not possible in __init__
         if k == 0:
             self.setup_steady_state_OP()
-        # print()
-        # print(f"Iteration: {k}")
+
         # extract current state
-        x = yMeasuredMatrix[:, k]
+        x = yMeasuredMatrix[:, k]  # TODO: estimator
         # calculate disturbance
         q = forecast[k, :]
         disturbance = controller.C @ q + controller.d
-        # print(x)
-        # print(q)
-        # print(disturbance)
         # prepare (steady) state for delta zero system
         x_delta, x_s, u_s = self.target_selector(x, r, disturbance)
         # get input for delta zero system
@@ -281,10 +281,7 @@ class MPC_ControlSim(ControlSim):
         u = u_delta + u_s
         # apply dynamics to get next state
         y = self.predict_next_state(x, u, disturbance)
-        # print(f"{k}: u = {u}, y = {y}")
-        # u = np.ones(5)
-        # y = np.zeros(5)
-        # input()
+
         return u, y
 
     def predict_next_state(self, x, u, d):
@@ -308,11 +305,6 @@ class MPC_ControlSim(ControlSim):
         # x_s = X_s if X_s is not None else r #TODO: failsave
         u_s = self.U_s.value
         x_delta = x - x_s
-        # print(f"x_s: {x_s}, u_s: {u_s}")
-        # print(f"x_d: {x_delta}")
-        # x_s_next = self.predict_next_state(x_s, u_s, disturbance)
-        # print(f"x_s_next: {x_s_next}")
-        # # input()
         return x_delta, x_s, u_s
 
     def setup_steady_state_OP(self):
@@ -332,6 +324,7 @@ class MPC_ControlSim(ControlSim):
             U_s >= 0.5 * np.ones(self.controller.nu),
         ]
         objective = cvx.Minimize(cvx.norm(X_s - Rho))
+        # TODO: test nu star to push input higher
         problem = cvx.Problem(objective, constraints)
         # finally set all states
         self.X_s = X_s
@@ -350,12 +343,12 @@ def run_mpc():
     rho_star = [5.70, 9.83, 10.63, 14.55, 11.94]
 
     q_star = [1 / q**2 for q in rho_star]
-    # q_star[-1] = q_star[-1] * 5
-    # q_star = [0, 0, 0, 0, 1]
-    print(q_star)
-    for s in [380, 470, 520, 600, 700, 825, 900, 950, 1050, 1100]:
-        for k in [51, 56, 62, 67, 72]:
-            task_name = f"q_star_S_{s}_K_{k}"
+
+    # for s in [470, 500, 600]:
+    #     for k in [60, 62]:
+    for s in [500]:
+        for k in [60]:
+            task_name = f"q_star_final_S_{s}_K_{k}"
             output_path = f"out/mpc/{task_name}/"
             print()
             print(f"Run MPC: {task_name}")
@@ -369,19 +362,32 @@ def run_mpc():
             }
 
             dsl_task = DSL(taskparams, MPC_ControlSim)
-            try:
-                dsl_task.simulation.output_path = output_path
-                experiment = dsl_task.runtask(
-                    init_from_notebook=True,
-                    controller_class=MPC_Controller,
-                    controller_json=param,
-                )
-            except:
-                print()
-                print(f"failed for {output_path}")
-                print()
-                input()
-                continue
+            dsl_task.simulation.output_path = output_path
+            experiment = dsl_task.runtask(
+                init_from_notebook=True,
+                controller_class=MPC_Controller,
+                controller_json=param,
+            )
+            show_plot = False
+            # show_plot = True
+            if show_plot:
+                region = "Region 4"
+                com = Comparison(
+                    [experiment],  # type:ignore
+                    ["Current Status (saved)"],  # type:ignore
+                    region=region,
+                )  # type:ignore
+                com.plot_density()
+                com.plot_flow()
+                com.plot_input()
+                com.plot_metrics()
+
+            # except:
+            #     print()
+            #     print(f"failed for {output_path}")
+            #     print()
+            #     input()
+            #     continue
 
 
 # -------------------------------------------------------------------------------------------------

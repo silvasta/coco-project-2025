@@ -1,3 +1,4 @@
+from sys import exec_prefix
 from typing import Union, override
 from collections import namedtuple
 import cvxpy as cvx
@@ -6,6 +7,8 @@ import numpy as np
 import json
 
 from src.controllers import controller
+
+# from src.data import experiment
 from src.tasks import dsl
 from src.tasks.estimate import Estimate
 from src.simulations.testcontrolsim import test_ControlSim
@@ -24,16 +27,49 @@ import glob
 # -------------------------------------------------------------------------------------------------
 
 cfg = pl.Config()
-cfg.set_tbl_rows(100)
+cfg.set_tbl_rows(90)
 
 BEST_RESULTS = [
-    # Travel time
-    "q_star_S_500_K_60",
-    "q_star_S_470_K_62",
-    "q_star_S_600_K_62",
-    "q_star_S_520_K_62",
-    # Waiting time
+    "q_star_final_S_500_K_60",
+    "q_star_final_S_500_K_62",
+    "q_star_final_S_470_K_60",
+    "q_star_final_S_470_K_62",
+    "q_star_final_S_600_K_60",
+    "q_star_final_S_600_K_62",
 ]
+
+
+def plot_best():
+    flows = pl.DataFrame()
+    densities = pl.DataFrame()
+    for p in BEST_RESULTS:
+        experiment = f"/home/silvan/coco/out/mpc/{p}"
+        # density
+        result_type = "density_results.csv"
+        result_path = f"{experiment}/results/{result_type}"
+        df = pl.read_csv(result_path)
+        density = df.select(pl.nth(5)).rename(lambda column_name: p)  # type:ignore
+        densities = densities.with_columns(density)
+        # flow
+        result_type = "flow_results.csv"
+        result_path = f"{experiment}/results/{result_type}"
+        df = pl.read_csv(result_path)
+        flow = df.select(pl.nth(5)).rename(lambda column_name: p)  # type:ignore
+        flows = flows.with_columns(flow)
+    # density
+    for col in densities.columns:
+        plt.plot(np.arange(180), densities[col], label=col)
+    plt.title("Density")
+    plt.legend(BEST_RESULTS)
+    plt.show()
+    plt.close()
+    # flow
+    for col in flows.columns:
+        plt.plot(np.arange(180), flows[col], label=col)
+    plt.title("Flow")
+    plt.legend(BEST_RESULTS)
+    plt.show()
+    plt.close()
 
 
 def plot_mpc_results():
@@ -80,14 +116,18 @@ def compare_mpc_results():
             legend = df.select(pl.nth(0)).rename(lambda column_name: "Legend")  # type:ignore
             summary = summary.with_columns(legend)
 
+        # use this for metrics
         result = df.select(pl.nth(1)).rename(lambda column_name: experiment_name)
+        # use this for all others
         # result = df.select(pl.nth(5)).rename(lambda column_name: experiment_name)
+
         summary = summary.with_columns(result)
 
     legend = legend.to_series().to_list()
     statistic = summary.drop("Legend").transpose(
         include_header=True, column_names=legend
     )
+    # debug or full list
     # print(summary)
     # print(statistic)
 
@@ -98,6 +138,7 @@ def compare_mpc_results():
 
     ## metrics.csv
     metrics = [
+        "column",
         "travel_time",
         "waiting_time",
         # "C0_abs",
@@ -111,9 +152,10 @@ def compare_mpc_results():
     for stat in metrics:
         print()
         print(f"stat: {stat}")
-        print(statistic.sort(stat))
+        print(statistic.select(metrics).sort(stat))
 
 
 if __name__ == "__main__":
     # plot_mpc_results()
-    compare_mpc_results()
+    # compare_mpc_results()
+    plot_best()

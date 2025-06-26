@@ -55,3 +55,11 @@ x(k+1)&=Ax(k)+Bu(k)+B_dd
 y(k)&=Cx(k)+C_dd
 \end{aligned}
 $$
+
+## Offset-free control
+
+$$
+x_s=Ax_s+Bu_s+B_dd
+\\
+Cx_s+C_dd = r
+$$
