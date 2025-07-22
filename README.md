@@ -1,12 +1,11 @@
-# COCO_trafficProject_Assignment
+# Computational Control (CoCo) Traffic Project
 
-## If you want to run your code on a different machine
+## If you want to run your this code
 
 ### 1. Clone this repository
 
 ```bash
-git clone https://gitlab.ethz.ch/kmoffat/coco_trafficproject_assignment.git
-cd coco_trafficproject_assignment
+git clone https://github.com/silvasta/coco-project-2025.git
 ```
 
 ### 2. Install SUMO
@@ -16,43 +15,63 @@ Follow the instructions on the official SUMO website to install SUMO v1.23.1:
 
 Note the version number is important and would affect reproducibility.
 
-### 2. Set Up a Virtual Environment
+### 2. Set Up a Virtual Environment Management
 
-Create and activate a virtual environment to manage dependencies.
-The JupyterHub will use python 3.13.3 to test your solution.
-
-**macOS/Linux:**
+#### Install uv
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-**Windows:**
-
-```cmd
-python -m venv venv
-venv\Scripts\activate
+# best and must have package manager for python
+curl -LsSf <https://astral.sh/uv/install.sh> | sh
+# (link valid at 2025.07.22, check if still proper)
 ```
 
 ### 3. Install Python Dependencies
 
-Once the virtual environment is active, install the required dependencies:
-
 ```bash
-pip install -r requirements.txt
-pip install jupyterlab
+cd coco-project-2025
+# create environment, install python version and dependencies
+uv sync
 ```
 
----
+reads `pyproject.toml` and `uv.lock` $\rightarrow$ creates environment and resolves all dependencies
+
+#### General uv info
+
+```bash
+# if you actually need stuff from requirements.txt
+uv pip install -r requirements.txt
+# to do it proper, add important libraries with
+uv add {important_library}
+# or add them manually in pyproject.toml
+```
 
 ## Running the Project
 
 ```bash
-jupyter lab
+# run student code
+uv run silvasta.py
+# run original code
+uv run main.py
 ```
 
-Run the notebook `main.ipynb`
+**Run the notebook** Use JupyterLab (f.e. available in snap app store)
+
+#### Jupyter with uv
+
+##### Assuming no uv environment exists
+
+```bash
+# create environment
+uv init
+```
+
+##### Otherwise or after creation of new uv project
+
+```bash
+# connect to Jupyter
+uv add --dev ipykernel
+uv run ipyhon kernel install --user --env .venv --name sysco # or any other name
+```
 
 ---
 
@@ -60,7 +79,3 @@ Run the notebook `main.ipynb`
 
 This project is licensed under the **Creative Commons Attribution-NonCommercial-NoDerivatives (CC BY-NC-ND)** license.
 See the [LICENSE-CC-BY-NC-ND](./LICENSE-CC-BY-NC-ND) file for more details.
-
----
-
-Run the project
