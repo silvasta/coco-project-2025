@@ -1,3 +1,4 @@
+from pathlib import Path
 from sys import exec_prefix
 from typing import Union, override
 from collections import namedtuple
@@ -30,20 +31,26 @@ cfg = pl.Config()
 cfg.set_tbl_rows(90)
 
 BEST_RESULTS = [
-    "q_star_final_S_500_K_60",
-    "q_star_final_S_500_K_62",
-    "q_star_final_S_470_K_60",
-    "q_star_final_S_470_K_62",
-    "q_star_final_S_600_K_60",
-    "q_star_final_S_600_K_62",
+    # "q_star_final_S_500_K_60",
+    # "q_star_final_S_500_K_62",
+    # "q_star_final_S_470_K_60",
+    # "q_star_final_S_470_K_62",
+    # "q_star_final_S_600_K_60",
+    # "q_star_final_S_600_K_62",
+    "q_star_S_500_K_60",
+    "august_S_500_K_60",
 ]
+
+# WARN: path management!
+project_root = Path.cwd()
 
 
 def plot_best():
     flows = pl.DataFrame()
     densities = pl.DataFrame()
     for p in BEST_RESULTS:
-        experiment = f"/home/silvan/coco/out/mpc/{p}"
+        experiment = project_root / "out/mpc" / p
+        print(experiment)
         # density
         result_type = "density_results.csv"
         result_path = f"{experiment}/results/{result_type}"

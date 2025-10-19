@@ -348,7 +348,8 @@ def run_mpc():
     #     for k in [60, 62]:
     for s in [500]:
         for k in [60]:
-            task_name = f"q_star_final_S_{s}_K_{k}"
+            # task_name = f"q_star_final_S_{s}_K_{k}"
+            task_name = f"august_S_{s}_K_{k}"
             output_path = f"out/mpc/{task_name}/"
             print()
             print(f"Run MPC: {task_name}")
